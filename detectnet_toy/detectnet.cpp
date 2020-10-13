@@ -124,13 +124,12 @@ int main( int argc, char** argv )
 	// parse overlay flags
 	const uint32_t overlayFlags = detectNet::OverlayFlagsFromStr(cmdLine.GetString("overlay", "box,labels,conf"));
 	
-	uchar3* cropped_image = NULL;
+	uchar3* raw_image = NULL;
 	const uint32_t CROP_WIDTH = 416;
 	const uint32_t CROP_HEIGHT = 416;
-	unsigned int lr_center, tb_center = 0;
-	int4 roi = make_int4(0, 0, CROP_WIDTH, CROP_HEIGHT );
-	cudaAllocMapped(&cropped_image, CROP_WIDTH, CROP_HEIGHT);
-	const float MIN_CONF = 0.70;
+	float lr_center, tb_center = 0.0;
+	//int4 roi = make_int4(0, 0, CROP_WIDTH, CROP_HEIGHT );
+	const float MIN_CONF = 0.50;
 	const int IMAGE_PACING = 10;
 	const std::string OBJECT = "dog";
 	int pacer = 0;
@@ -156,40 +155,42 @@ int main( int argc, char** argv )
 
 		// detect objects in the frame
 		detectNet::Detection* detections = NULL;
+		cudaAllocMapped(&raw_image, input->GetWidth(), input->GetHeight());
+
 	
 		const int numDetections = net->Detect(image, input->GetWidth(), input->GetHeight(), &detections, overlayFlags);
 		
 		if( numDetections > 0 )
 		{
-			LogVerbose("%i objects detected\n", numDetections);
+		   LogVerbose("%i objects detected\n", numDetections);
 		
-			for( int n=0; n < numDetections; n++ )
-			{
-				LogVerbose("detected obj %i  class #%u (%s)  confidence=%f\n", n, detections[n].ClassID, net->GetClassDesc(detections[n].ClassID), detections[n].Confidence);
-				LogVerbose("bounding box %i  (%f, %f)  (%f, %f)  w=%f  h=%f\n", n, detections[n].Left, detections[n].Top, detections[n].Right, detections[n].Bottom, detections[n].Width(), detections[n].Height()); 
-				if (detections[n].Confidence > MIN_CONF){
-					std::string desc = net->GetClassDesc(detections[n].ClassID);
-					detect_hit = (desc.find(OBJECT) != std::string::npos);
-					detect_hit &= (detections[n].Width() <= detections[n].Height() <= CROP_WIDTH);
-					if (detect_hit){
-						lr_center = (detections[n].Left + detections[n].Width()/2);
-						tb_center = (detections[n].Top + detections[n].Height()/2);
-						lr_center = lr_center < CROP_WIDTH/2 ? CROP_WIDTH/2 : lr_center;
-						lr_center = lr_center > input->GetWidth() - CROP_WIDTH/2 ? input->GetWidth() - CROP_WIDTH/2 : lr_center;
-						tb_center = tb_center < CROP_HEIGHT/2 ? CROP_HEIGHT/2 : tb_center;
-						tb_center = tb_center > input->GetHeight() - CROP_HEIGHT/2 ? input->GetHeight() - CROP_HEIGHT/2 : tb_center;
+		   for( int n=0; n < numDetections; n++ )
+		   {
+			LogVerbose("detected obj %i  class #%u (%s)  confidence=%f\n", n, detections[n].ClassID, net->GetClassDesc(detections[n].ClassID), detections[n].Confidence);
+			LogVerbose("bounding box %i  (%f, %f)  (%f, %f)  w=%f  h=%f\n", n, detections[n].Left, detections[n].Top, detections[n].Right, detections[n].Bottom, detections[n].Width(), detections[n].Height()); 
+			if (detections[n].Confidence > MIN_CONF){
+		 	   std::string desc = net->GetClassDesc(detections[n].ClassID);
+			   detect_hit = (desc.find(OBJECT) != std::string::npos);
+			   detect_hit &= (detections[n].Width() <= detections[n].Height() <= CROP_WIDTH);
+			   if (detect_hit){
+			      lr_center = (detections[n].Left + detections[n].Width()/2) / input->GetWidth();
+			      tb_center = (detections[n].Top + detections[n].Height()/2) / input->GetHeight();
+			      //lr_center = lr_center < CROP_WIDTH/2 ? CROP_WIDTH/2 : lr_center;
+			      //lr_center = lr_center > input->GetWidth() - CROP_WIDTH/2 ? input->GetWidth() - CROP_WIDTH/2 : lr_center;
+			      //tb_center = tb_center < CROP_HEIGHT/2 ? CROP_HEIGHT/2 : tb_center;
+			      //tb_center = tb_center > input->GetHeight() - CROP_HEIGHT/2 ? input->GetHeight() - CROP_HEIGHT/2 : tb_center;
 
-						roi.x = lr_center - CROP_WIDTH/2;
-						roi.y = tb_center - CROP_HEIGHT/2;
-						roi.z = lr_center + CROP_WIDTH/2;
-						roi.w = tb_center + CROP_HEIGHT/2;
-					}
-				}
+			      //roi.x = lr_center - CROP_WIDTH/2;
+			      //roi.y = tb_center - CROP_HEIGHT/2;
+			      //roi.z = lr_center + CROP_WIDTH/2;
+			      //roi.w = tb_center + CROP_HEIGHT/2;
+			   }
 			}
-			if (detect_hit){
-				cudaCrop(image, cropped_image, roi, input->GetWidth(), input->GetHeight());
-				img_output->Render(cropped_image, CROP_WIDTH, CROP_HEIGHT);
-			}
+		   }
+		   if (detect_hit){
+		      //cudaCrop(image, cropped_image, roi, input->GetWidth(), input->GetHeight());
+		      img_output->Render(cropped_image, CROP_WIDTH, CROP_HEIGHT);
+		   }
 		}	
 
 		// render outputs
