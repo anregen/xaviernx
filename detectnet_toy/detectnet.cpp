@@ -58,7 +58,8 @@ int usage()
 	printf("positional arguments:\n");
 	printf("    input_URI       resource URI of input stream  (see videoSource below)\n");
 	printf("    output_URI      resource URI of output stream (see videoOutput below)\n\n");
-	printf("    image_URI       resource URI of image output (see videoOutput below)\n\n");
+	printf("    image_URI       resource URI of image output  (see videoOutput below)\n\n");
+  printf("    overlay_flags   defaults to \"box,labels,conf\"\n\n");
 
 	printf("%s", detectNet::Usage());
 	printf("%s", videoSource::Usage());
@@ -110,6 +111,14 @@ int main( int argc, char** argv )
 	if( !img_output )
 		LogError("detectnet:  failed to create image output object\n");	
 	
+  // learn how to use cmdLine
+  const char * overlayFlagString = "none";
+  // if (argc > 3)
+  // char * overlayFlagString = argv[4];
+  //if( !overlayFlagString )
+  //  overlayFlagString = "box,labels,conf";
+
+
 	/*
 	 * create detection network
 	 */
@@ -122,7 +131,7 @@ int main( int argc, char** argv )
 	}
 
 	// parse overlay flags
-	const uint32_t overlayFlags = detectNet::OverlayFlagsFromStr(cmdLine.GetString("overlay", "box,labels,conf"));
+	const uint32_t overlayFlags = detectNet::OverlayFlagsFromStr(cmdLine.GetString("overlay", overlayFlagString));
 	
 	uchar3* cropped_image = NULL;
 	const uint32_t CROP_WIDTH = 416;
@@ -130,10 +139,11 @@ int main( int argc, char** argv )
 	unsigned int lr_center, tb_center = 0;
 	int4 roi = make_int4(0, 0, CROP_WIDTH, CROP_HEIGHT );
 	cudaAllocMapped(&cropped_image, CROP_WIDTH, CROP_HEIGHT);
-	const float MIN_CONF = 0.90;
-	const int IMAGE_PACING = 10;
+	const float MIN_CONF = 0.70;
+	const int IMAGE_PACING = 20;  // will skip at least 20 frames between image captures
+	long int pacer = -1*(IMAGE_PACING + 1);  // so the first video frame can pass the pace check
+  long int frame_count = 0;          
 	const std::string OBJECT = "dog";
-	int pacer = 0;
 	bool detect_hit = false;
 
 	/*
@@ -154,6 +164,8 @@ int main( int argc, char** argv )
 			continue;
 		}
 
+    frame_count++;
+
 		// detect objects in the frame
 		detectNet::Detection* detections = NULL;
 	
@@ -171,25 +183,29 @@ int main( int argc, char** argv )
 				if (detections[n].Confidence > MIN_CONF){
 					std::string desc = net->GetClassDesc(detections[n].ClassID);
 					detect_hit = (desc.find(OBJECT) != std::string::npos);
-					detect_hit &= (detections[n].Width() <= detections[n].Height() <= CROP_WIDTH);
+					detect_hit &= (detections[n].Width() <= CROP_WIDTH) && (detections[n].Height() <= CROP_HEIGHT);
 					if (detect_hit){
-						lr_center = (detections[n].Left + detections[n].Width()/2);
-						tb_center = (detections[n].Top + detections[n].Height()/2);
-						lr_center = lr_center < CROP_WIDTH/2 ? CROP_WIDTH/2 : lr_center;
-						lr_center = lr_center > input->GetWidth() - CROP_WIDTH/2 ? input->GetWidth() - CROP_WIDTH/2 : lr_center;
-						tb_center = tb_center < CROP_HEIGHT/2 ? CROP_HEIGHT/2 : tb_center;
-						tb_center = tb_center > input->GetHeight() - CROP_HEIGHT/2 ? input->GetHeight() - CROP_HEIGHT/2 : tb_center;
+            LogVerbose("hit detected\n");
+            if (frame_count - pacer > IMAGE_PACING)
+            {
+              pacer = frame_count;
+						  lr_center = (detections[n].Left + detections[n].Width()/2);
+						  tb_center = (detections[n].Top + detections[n].Height()/2);
+						  lr_center = lr_center < CROP_WIDTH/2 ? CROP_WIDTH/2 : lr_center;
+						  lr_center = lr_center > input->GetWidth() - CROP_WIDTH/2 ? input->GetWidth() - CROP_WIDTH/2 : lr_center;
+						  tb_center = tb_center < CROP_HEIGHT/2 ? CROP_HEIGHT/2 : tb_center;
+						  tb_center = tb_center > input->GetHeight() - CROP_HEIGHT/2 ? input->GetHeight() - CROP_HEIGHT/2 : tb_center;
 
-						roi.x = lr_center - CROP_WIDTH/2;
-						roi.y = tb_center - CROP_HEIGHT/2;
-						roi.z = lr_center + CROP_WIDTH/2;
-						roi.w = tb_center + CROP_HEIGHT/2;
+						  roi.x = lr_center - CROP_WIDTH/2;
+						  roi.y = tb_center - CROP_HEIGHT/2;
+						  roi.z = lr_center + CROP_WIDTH/2;
+						  roi.w = tb_center + CROP_HEIGHT/2;
+				      
+              cudaCrop(image, cropped_image, roi, input->GetWidth(), input->GetHeight());
+              img_output->Render(cropped_image, CROP_WIDTH, CROP_HEIGHT);
+            }
 					}
 				}
-			}
-			if (detect_hit){
-				cudaCrop(image, cropped_image, roi, input->GetWidth(), input->GetHeight());
-				img_output->Render(cropped_image, CROP_WIDTH, CROP_HEIGHT);
 			}
 		}	
 
