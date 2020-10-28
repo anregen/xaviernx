@@ -51,7 +51,7 @@ void sig_handler(int signo)
 
 int usage()
 {
-	printf("usage: detectnet [--help] [--network=NETWORK] [--threshold=THRESHOLD] ...\n");
+	printf("usage: detectnet_toy [--help] [--network=NETWORK] [--threshold=THRESHOLD] ...\n");
 	printf("                 input_URI [output_URI]\n\n");
 	printf("Locate objects in a video/image stream using an object detection DNN.\n");
 	printf("See below for additional arguments that may not be shown above.\n\n");
@@ -130,7 +130,7 @@ int main( int argc, char** argv )
 	unsigned int lr_center, tb_center = 0;
 	int4 roi = make_int4(0, 0, CROP_WIDTH, CROP_HEIGHT );
 	cudaAllocMapped(&cropped_image, CROP_WIDTH, CROP_HEIGHT);
-	const float MIN_CONF = 0.70;
+	const float MIN_CONF = 0.90;
 	const int IMAGE_PACING = 10;
 	const std::string OBJECT = "dog";
 	int pacer = 0;
@@ -162,6 +162,7 @@ int main( int argc, char** argv )
 		if( numDetections > 0 )
 		{
 			LogVerbose("%i objects detected\n", numDetections);
+      detect_hit = false;
 		
 			for( int n=0; n < numDetections; n++ )
 			{
